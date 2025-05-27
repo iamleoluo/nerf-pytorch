@@ -8,6 +8,8 @@ no_batching = True
 use_viewdirs = True
 white_bkgd = True
 
+half_res = False
+
 # 保持渲染質量的關鍵參數
 N_samples = 64
 N_importance = 128

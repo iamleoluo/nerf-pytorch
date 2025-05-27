@@ -1,0 +1,38 @@
+# NeRF配置文件 - 露營車數據集
+# 基於NeRF Synthetic數據集格式
+
+expname = camper_nerf
+basedir = ./logs
+datadir = ./data/nerf_synthetic/camper
+dataset_type = blender
+
+no_batching = True
+
+use_viewdirs = True
+white_bkgd = True
+
+half_res = False
+
+# 保持渲染質量的關鍵參數
+N_samples = 64
+N_importance = 128
+multires = 10
+multires_views = 4
+netdepth = 8
+netwidth = 256
+
+# 優化速度的參數
+N_rand = 1024
+chunk = 32768
+netchunk = 65536
+
+# 學習率策略優化
+lrate = 5e-4
+lrate_decay = 250
+
+# 預裁剪設置（適合露營車場景）
+precrop_iters = 500
+precrop_frac = 0.5
+
+# 測試時跳過訓練視角
+testskip = 8 
