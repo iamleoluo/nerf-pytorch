@@ -17,9 +17,9 @@ multires_views = 4
 netdepth = 8
 netwidth = 256
 
-N_rand = 1024
-chunk = 32768
-netchunk = 65536
+N_rand = 2048
+chunk = 49152
+netchunk = 98304
 
 lrate = 5e-4
 lrate_decay = 250

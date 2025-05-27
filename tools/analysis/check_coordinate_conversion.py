@@ -11,7 +11,9 @@ import os
 import sys
 
 # 添加項目根目錄到路徑
-sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(script_dir, '../..'))
+sys.path.append(project_root)
 
 def print_coordinate_systems():
     """詳細說明座標系統差異"""
@@ -180,9 +182,9 @@ def check_dataset_transforms(dataset_path=None):
     print("\n📊 數據集變換矩陣檢查")
     print("=" * 60)
     
-    # 默認路徑
+    # 使用絕對路徑
     if dataset_path is None:
-        dataset_path = "../../data/nerf_synthetic/camper_fixed/transforms.json"
+        dataset_path = os.path.join(project_root, "data/nerf_synthetic/camper_fixed/transforms.json")
     
     if not os.path.exists(dataset_path):
         print(f"❌ 找不到transforms.json文件: {dataset_path}")

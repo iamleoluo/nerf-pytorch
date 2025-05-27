@@ -11,9 +11,12 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import os
 import sys
+import datetime
 
 # 添加項目根目錄到路徑
-sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(script_dir, '../..'))
+sys.path.append(project_root)
 
 def load_transforms(dataset_path):
     """載入transforms.json文件"""
@@ -246,13 +249,211 @@ def generate_quality_report(stats, dataset_name="Unknown"):
     else:
         print("\n❌ 總體評估: 品質較差")
 
+def evaluate_camera_distribution(positions, directions):
+    """評估相機分佈的合理性"""
+    print("\n📊 相機分佈合理性評估")
+    print("=" * 60)
+    
+    # 1. 計算相機間距
+    n_cameras = len(positions)
+    distances = []
+    for i in range(n_cameras):
+        for j in range(i+1, n_cameras):
+            dist = np.linalg.norm(positions[i] - positions[j])
+            distances.append(dist)
+    
+    distances = np.array(distances)
+    min_dist = np.min(distances)
+    avg_dist = np.mean(distances)
+    max_dist = np.max(distances)
+    
+    print("\n1️⃣ 相機間距分析:")
+    print(f"  最小間距: {min_dist:.3f}")
+    print(f"  平均間距: {avg_dist:.3f}")
+    print(f"  最大間距: {max_dist:.3f}")
+    
+    # 評估間距合理性
+    if min_dist < 0.1:
+        print("  ⚠️ 警告: 存在過於接近的相機")
+    if max_dist > 10.0:
+        print("  ⚠️ 警告: 存在過於分散的相機")
+    
+    # 2. 分析相機朝向分佈
+    directions_norm = directions / np.linalg.norm(directions, axis=1, keepdims=True)
+    center = np.mean(positions, axis=0)
+    
+    # 計算相機朝向與中心點方向的夾角
+    to_center = center - positions
+    to_center_norm = to_center / np.linalg.norm(to_center, axis=1, keepdims=True)
+    center_alignment = np.sum(directions_norm * to_center_norm, axis=1)
+    
+    print("\n2️⃣ 相機朝向分析:")
+    print(f"  平均朝向中心度: {np.mean(center_alignment):.3f}")
+    print(f"  朝向中心度標準差: {np.std(center_alignment):.3f}")
+    print(f"  朝向中心的相機數: {np.sum(center_alignment > 0.5)}/{len(center_alignment)}")
+    
+    # 評估朝向合理性
+    if np.mean(center_alignment) < 0.3:
+        print("  ⚠️ 警告: 相機朝向過於分散")
+    if np.sum(center_alignment > 0.5) < len(center_alignment) * 0.5:
+        print("  ⚠️ 警告: 朝向中心的相機比例過低")
+    
+    # 3. 分析覆蓋範圍
+    # 計算相機位置的中心和範圍
+    pos_center = np.mean(positions, axis=0)
+    pos_std = np.std(positions, axis=0)
+    
+    print("\n3️⃣ 覆蓋範圍分析:")
+    print(f"  場景中心: [{pos_center[0]:6.3f}, {pos_center[1]:6.3f}, {pos_center[2]:6.3f}]")
+    print(f"  位置標準差: [{pos_std[0]:6.3f}, {pos_std[1]:6.3f}, {pos_std[2]:6.3f}]")
+    
+    # 評估覆蓋範圍合理性
+    if np.any(pos_std < 0.1):
+        print("  ⚠️ 警告: 某個維度的覆蓋範圍過小")
+    if np.any(pos_std > 5.0):
+        print("  ⚠️ 警告: 某個維度的覆蓋範圍過大")
+    
+    # 4. 綜合評估
+    print("\n4️⃣ 綜合評估:")
+    
+    # 計算各項指標的得分
+    spacing_score = 1.0
+    if min_dist < 0.1:
+        spacing_score -= 0.3
+    if max_dist > 10.0:
+        spacing_score -= 0.2
+    
+    orientation_score = 1.0
+    if np.mean(center_alignment) < 0.3:
+        orientation_score -= 0.3
+    if np.sum(center_alignment > 0.5) < len(center_alignment) * 0.5:
+        orientation_score -= 0.2
+    
+    coverage_score = 1.0
+    if np.any(pos_std < 0.1):
+        coverage_score -= 0.3
+    if np.any(pos_std > 5.0):
+        coverage_score -= 0.2
+    
+    total_score = (spacing_score + orientation_score + coverage_score) / 3
+    
+    print(f"  相機間距得分: {spacing_score:.2f}")
+    print(f"  朝向分佈得分: {orientation_score:.2f}")
+    print(f"  覆蓋範圍得分: {coverage_score:.2f}")
+    print(f"  總體得分: {total_score:.2f}")
+    
+    if total_score >= 0.8:
+        print("  ✅ 相機分佈良好")
+    elif total_score >= 0.6:
+        print("  ⚠️ 相機分佈一般，建議優化")
+    else:
+        print("  ❌ 相機分佈較差，需要重新規劃")
+    
+    return {
+        'spacing_score': spacing_score,
+        'orientation_score': orientation_score,
+        'coverage_score': coverage_score,
+        'total_score': total_score
+    }
+
+def generate_detailed_report(dataset_name, stats, evaluation, positions, directions, output_dir):
+    """生成詳細的分析報告"""
+    report_path = os.path.join(output_dir, "camera_analysis_report.md")
+    
+    with open(report_path, 'w', encoding='utf-8') as f:
+        # 標題
+        f.write(f"# 相機分佈分析報告 - {dataset_name}\n\n")
+        f.write(f"生成時間: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        
+        # 基本統計
+        f.write("## 1. 基本統計\n\n")
+        f.write(f"- 相機總數: {len(positions)}\n")
+        f.write(f"- 場景中心: [{stats['center'][0]:.3f}, {stats['center'][1]:.3f}, {stats['center'][2]:.3f}]\n")
+        f.write(f"- 平均距離中心: {stats['distances'].mean():.3f}\n")
+        f.write(f"- 距離標準差: {stats['distances'].std():.3f}\n")
+        f.write(f"- 最小距離: {stats['distances'].min():.3f}\n")
+        f.write(f"- 最大距離: {stats['distances'].max():.3f}\n\n")
+        
+        # 相機朝向分析
+        f.write("## 2. 相機朝向分析\n\n")
+        f.write(f"- 最大相似度: {stats['max_similarity']:.3f}\n")
+        f.write(f"- 最小相似度: {min(np.dot(directions, directions.T)[np.triu_indices(len(directions), k=1)]):.3f}\n")
+        f.write(f"- 平均相似度: {stats['center_alignment']:.3f}\n\n")
+        
+        # 分佈評估
+        f.write("## 3. 分佈評估\n\n")
+        f.write("### 3.1 相機間距\n\n")
+        f.write(f"- 最小間距: {min(np.linalg.norm(positions[i] - positions[j]) for i in range(len(positions)) for j in range(i+1, len(positions))):.3f}\n")
+        f.write(f"- 平均間距: {np.mean([np.linalg.norm(positions[i] - positions[j]) for i in range(len(positions)) for j in range(i+1, len(positions))]):.3f}\n")
+        f.write(f"- 最大間距: {max(np.linalg.norm(positions[i] - positions[j]) for i in range(len(positions)) for j in range(i+1, len(positions))):.3f}\n")
+        f.write(f"- 間距得分: {evaluation['spacing_score']:.2f}\n\n")
+        
+        f.write("### 3.2 朝向分佈\n\n")
+        directions_norm = directions / np.linalg.norm(directions, axis=1, keepdims=True)
+        center = np.mean(positions, axis=0)
+        to_center = center - positions
+        to_center_norm = to_center / np.linalg.norm(to_center, axis=1, keepdims=True)
+        center_alignment = np.sum(directions_norm * to_center_norm, axis=1)
+        
+        f.write(f"- 平均朝向中心度: {np.mean(center_alignment):.3f}\n")
+        f.write(f"- 朝向中心度標準差: {np.std(center_alignment):.3f}\n")
+        f.write(f"- 朝向中心的相機數: {np.sum(center_alignment > 0.5)}/{len(center_alignment)}\n")
+        f.write(f"- 朝向得分: {evaluation['orientation_score']:.2f}\n\n")
+        
+        f.write("### 3.3 覆蓋範圍\n\n")
+        pos_std = np.std(positions, axis=0)
+        f.write(f"- X軸標準差: {pos_std[0]:.3f}\n")
+        f.write(f"- Y軸標準差: {pos_std[1]:.3f}\n")
+        f.write(f"- Z軸標準差: {pos_std[2]:.3f}\n")
+        f.write(f"- 覆蓋得分: {evaluation['coverage_score']:.2f}\n\n")
+        
+        # 綜合評估
+        f.write("## 4. 綜合評估\n\n")
+        f.write(f"- 總體得分: {evaluation['total_score']:.2f}\n\n")
+        
+        if evaluation['total_score'] >= 0.8:
+            f.write("### 評估結果: ✅ 相機分佈良好\n\n")
+            f.write("相機分佈符合以下要求：\n")
+            f.write("- 相機間距適中\n")
+            f.write("- 朝向分佈合理\n")
+            f.write("- 覆蓋範圍充足\n\n")
+        elif evaluation['total_score'] >= 0.6:
+            f.write("### 評估結果: ⚠️ 相機分佈一般\n\n")
+            f.write("建議優化以下方面：\n")
+            if evaluation['spacing_score'] < 0.8:
+                f.write("- 調整相機間距，避免過於集中或分散\n")
+            if evaluation['orientation_score'] < 0.8:
+                f.write("- 優化相機朝向，提高朝向中心的相機比例\n")
+            if evaluation['coverage_score'] < 0.8:
+                f.write("- 擴大覆蓋範圍，確保各維度都有足夠的覆蓋\n\n")
+        else:
+            f.write("### 評估結果: ❌ 相機分佈較差\n\n")
+            f.write("需要重新規劃相機分佈：\n")
+            f.write("- 重新設計相機位置，確保合理的間距\n")
+            f.write("- 調整相機朝向，提高朝向中心的比例\n")
+            f.write("- 優化覆蓋範圍，確保場景各部分的覆蓋\n\n")
+        
+        # 視覺化說明
+        f.write("## 5. 視覺化說明\n\n")
+        f.write("本報告包含以下視覺化圖表：\n")
+        f.write("- `cameras_3d.png`: 3D視覺化圖，顯示相機位置和朝向\n")
+        f.write("- `cameras_2d.png`: 2D投影圖，顯示相機在不同平面的分佈\n\n")
+        
+        # 注意事項
+        f.write("## 6. 注意事項\n\n")
+        f.write("- 本報告基於當前數據集生成，僅供參考\n")
+        f.write("- 建議根據實際場景需求調整評估標準\n")
+        f.write("- 定期更新相機分佈以確保最佳效果\n")
+    
+    print(f"📝 詳細報告已保存至: {report_path}")
+
 def main():
     """主函數"""
     print("📷 相機位置和朝向視覺化工具")
     print("=" * 50)
     
-    # 默認數據集路徑
-    dataset_path = "../../data/nerf_synthetic/camper_fixed/transforms.json"
+    # 使用絕對路徑
+    dataset_path = os.path.join(project_root, "data/nerf_synthetic/camper_fixed/transforms.json")
     
     # 載入數據
     transforms_data = load_transforms(dataset_path)
@@ -265,6 +466,9 @@ def main():
     # 分析分佈
     stats = analyze_camera_distribution(positions, directions)
     
+    # 評估相機分佈合理性
+    evaluation = evaluate_camera_distribution(positions, directions)
+    
     # 生成品質報告
     generate_quality_report(stats, "camper_fixed")
     
@@ -272,7 +476,7 @@ def main():
     print("\n🎨 生成視覺化圖表...")
     
     # 創建輸出目錄
-    output_dir = "../../outputs/camera_analysis"
+    output_dir = os.path.join(project_root, "outputs/camera_analysis")
     os.makedirs(output_dir, exist_ok=True)
     
     # 3D視覺化
@@ -283,7 +487,10 @@ def main():
     visualize_camera_distribution(positions, directions,
                                  os.path.join(output_dir, "cameras_2d.png"))
     
-    print(f"\n✅ 分析完成！圖表保存在: {output_dir}")
+    # 生成詳細報告
+    generate_detailed_report("camper_fixed", stats, evaluation, positions, directions, output_dir)
+    
+    print(f"\n✅ 分析完成！圖表和報告保存在: {output_dir}")
 
 if __name__ == "__main__":
     main() 
