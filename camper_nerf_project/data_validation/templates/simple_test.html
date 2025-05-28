@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>簡單測試 - 相機可視化</title>
+    <style>
+        body { margin: 0; padding: 20px; font-family: Arial, sans-serif; }
+        #container { width: 800px; height: 600px; border: 1px solid #ccc; }
+        #info { margin-top: 10px; padding: 10px; background: #f0f0f0; }
+    </style>
+</head>
+<body>
+    <h1>簡單相機可視化測試</h1>
+    <div id="container"></div>
+    <div id="info">
+        <p>狀態: <span id="status">初始化中...</span></p>
+        <p>相機數量: <span id="camera-count">0</span></p>
+        <p>3D對象數量: <span id="object-count">0</span></p>
+        <p>選中相機: <span id="selected-camera">無</span></p>
+        <button onclick="loadCameras()">載入相機</button>
+        <button onclick="resetView()">重置視角</button>
+    </div>
+    
+    <div id="camera-details" style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 5px; display: none;">
+        <h3>相機詳細信息</h3>
+        <div style="display: flex; gap: 20px;">
+            <div style="flex: 1;">
+                <h4>NeRF 數據</h4>
+                <p><strong>文件名:</strong> <span id="camera-filename"></span></p>
+                <p><strong>位置:</strong> <span id="nerf-position"></span></p>
+                <h4>COLMAP 數據</h4>
+                <p><strong>ID:</strong> <span id="colmap-id"></span></p>
+                <p><strong>位置:</strong> <span id="colmap-position"></span></p>
+                <p><strong>位置差異:</strong> <span id="position-diff"></span></p>
+            </div>
+            <div style="flex: 1;">
+                <h4>圖像預覽</h4>
+                <img id="camera-image" style="max-width: 100%; max-height: 300px; border: 1px solid #ccc;" alt="相機圖像">
+                <p id="image-status" style="color: #666; font-size: 0.9em;"></p>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/three@0.137.0/build/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.137.0/examples/js/controls/OrbitControls.js"></script>
+    
+    <script>
+        let scene, camera, renderer, controls;
+        let cameraObjects = [];
+        let cameras = [];
+
+        function init() {
+            const container = document.getElementById('container');
+            
+            // 創建場景
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xf0f0f0);
+
+            // 創建相機
+            camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.01, 100);
+            camera.position.set(1, 1, 1);
+
+            // 創建渲染器
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            container.appendChild(renderer.domElement);
+
+            // 添加控制器
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+
+            // 添加坐標軸和網格
+            const axesHelper = new THREE.AxesHelper(1);
+            scene.add(axesHelper);
+
+            const gridHelper = new THREE.GridHelper(2, 20);
+            scene.add(gridHelper);
+
+            // 添加一些測試球體
+            for (let i = 0; i < 5; i++) {
+                const geometry = new THREE.SphereGeometry(0.05, 16, 16);
+                const material = new THREE.MeshBasicMaterial({ color: Math.random() * 0xffffff });
+                const sphere = new THREE.Mesh(geometry, material);
+                sphere.position.set(
+                    (Math.random() - 0.5) * 2,
+                    (Math.random() - 0.5) * 2,
+                    (Math.random() - 0.5) * 2
+                );
+                scene.add(sphere);
+            }
+
+            // 動畫循環
+            function animate() {
+                requestAnimationFrame(animate);
+                controls.update();
+                renderer.render(scene, camera);
+            }
+            animate();
+
+            updateStatus('3D場景初始化完成');
+        }
+
+        async function loadCameras() {
+            try {
+                updateStatus('載入相機數據中...');
+                
+                const response = await fetch('/api/cameras');
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    cameras = data.data;
+                    document.getElementById('camera-count').textContent = cameras.length;
+                    
+                    // 清除現有相機對象
+                    cameraObjects.forEach(obj => scene.remove(obj));
+                    cameraObjects = [];
+                    
+                    // 添加相機可視化
+                    cameras.forEach((cam, index) => {
+                        if (cam.transform_matrix) {
+                            // NeRF 相機 (紅色球體)
+                            const matrix = new THREE.Matrix4().fromArray(cam.transform_matrix.flat());
+                            const position = new THREE.Vector3();
+                            matrix.decompose(position, new THREE.Quaternion(), new THREE.Vector3());
+                            
+                            const geometry = new THREE.SphereGeometry(0.03, 16, 16);
+                            const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+                            const sphere = new THREE.Mesh(geometry, material);
+                            sphere.position.copy(position);
+                            scene.add(sphere);
+                            cameraObjects.push(sphere);
+                            
+                            if (index < 3) {
+                                console.log(`相機 ${index}: ${cam.file_path}, 位置:`, position);
+                            }
+                        }
+                        
+                        if (cam.colmap_transform) {
+                            // COLMAP 相機 (藍色球體)
+                            const matrix = new THREE.Matrix4().fromArray(cam.colmap_transform.flat());
+                            const position = new THREE.Vector3();
+                            matrix.decompose(position, new THREE.Quaternion(), new THREE.Vector3());
+                            
+                            const geometry = new THREE.SphereGeometry(0.03, 16, 16);
+                            const material = new THREE.MeshBasicMaterial({ color: 0x0000ff });
+                            const sphere = new THREE.Mesh(geometry, material);
+                            sphere.position.copy(position);
+                            scene.add(sphere);
+                            cameraObjects.push(sphere);
+                        }
+                    });
+                    
+                    document.getElementById('object-count').textContent = cameraObjects.length;
+                    
+                    // 自動調整視角
+                    fitCameraToObjects();
+                    
+                    updateStatus(`成功載入 ${cameras.length} 個相機，創建 ${cameraObjects.length} 個3D對象`);
+                } else {
+                    throw new Error(data.message);
+                }
+            } catch (error) {
+                console.error('載入失敗:', error);
+                updateStatus('載入失敗: ' + error.message);
+            }
+        }
+
+        function fitCameraToObjects() {
+            if (cameraObjects.length === 0) return;
+
+            const box = new THREE.Box3();
+            cameraObjects.forEach(obj => box.expandByObject(obj));
+
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            
+            console.log('相機範圍中心:', center);
+            console.log('相機範圍大小:', size);
+
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const distance = maxDim * 2;
+            
+            camera.position.set(
+                center.x + distance,
+                center.y + distance,
+                center.z + distance
+            );
+            camera.lookAt(center);
+            controls.target.copy(center);
+            controls.update();
+        }
+
+        function resetView() {
+            camera.position.set(1, 1, 1);
+            camera.lookAt(0, 0, 0);
+            controls.target.set(0, 0, 0);
+            controls.update();
+        }
+
+        function updateStatus(message) {
+            document.getElementById('status').textContent = message;
+            console.log(message);
+        }
+
+        // 初始化
+        init();
+    </script>
+</body>
+</html> 

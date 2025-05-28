@@ -1,0 +1,93 @@
+/* 全局樣式 */
+body {
+    background-color: #f8f9fa;
+    padding: 20px 0;
+}
+
+/* 卡片樣式 */
+.card {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    margin-bottom: 20px;
+}
+
+.card-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+}
+
+/* 相機可視化區域 */
+#camera-visualization {
+    width: 100%;
+    height: 500px;
+    background-color: #fff;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+/* 圖像預覽樣式 */
+.img-fluid {
+    max-height: 400px;
+    object-fit: contain;
+    margin: 0 auto;
+    display: block;
+}
+
+/* 相機信息樣式 */
+.camera-info {
+    background-color: #f8f9fa;
+    padding: 15px;
+    border-radius: 4px;
+    margin-top: 15px;
+}
+
+.camera-info h6 {
+    margin-bottom: 10px;
+    color: #495057;
+}
+
+.camera-info p {
+    margin-bottom: 5px;
+    font-size: 0.9rem;
+}
+
+/* 驗證結果樣式 */
+.alert {
+    margin-bottom: 10px;
+}
+
+.alert:last-child {
+    margin-bottom: 0;
+}
+
+.alert pre {
+    background-color: rgba(0, 0, 0, 0.05);
+    padding: 10px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+/* 開關按鈕樣式 */
+.form-check-input:checked {
+    background-color: #0d6efd;
+    border-color: #0d6efd;
+}
+
+/* 按鈕樣式 */
+.btn {
+    margin-right: 5px;
+}
+
+.btn:last-child {
+    margin-right: 0;
+}
+
+/* 響應式調整 */
+@media (max-width: 768px) {
+    #camera-visualization {
+        height: 300px;
+    }
+    
+    .img-fluid {
+        max-height: 300px;
+    }
+} 
