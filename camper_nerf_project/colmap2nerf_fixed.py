@@ -95,15 +95,140 @@ def normalize_poses(poses):
     
     return poses, center, scale
 
+def create_filename_mapping(images_dir, colmap_images):
+    """
+    創建COLMAP記錄的文件名與實際文件名的映射
+    
+    Args:
+        images_dir: 實際圖片目錄
+        colmap_images: COLMAP記錄的圖片信息
+    
+    Returns:
+        dict: {colmap_filename: actual_filename}
+    """
+    import os
+    from pathlib import Path
+    
+    # 獲取實際存在的圖片文件
+    actual_files = []
+    image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif'}
+    
+    for file_path in Path(images_dir).iterdir():
+        if file_path.suffix.lower() in image_extensions:
+            actual_files.append(file_path.name)
+    
+    # 獲取COLMAP記錄的文件名
+    colmap_files = [img_data.name for img_data in colmap_images.values()]
+    
+    print(f"📁 實際文件數量: {len(actual_files)}")
+    print(f"📁 COLMAP記錄數量: {len(colmap_files)}")
+    
+    # 創建映射
+    filename_mapping = {}
+    
+    # 如果數量匹配，嘗試按順序映射
+    if len(actual_files) == len(colmap_files):
+        # 按文件名排序
+        actual_files_sorted = sorted(actual_files)
+        colmap_files_sorted = sorted(colmap_files)
+        
+        for colmap_file, actual_file in zip(colmap_files_sorted, actual_files_sorted):
+            filename_mapping[colmap_file] = actual_file
+            
+        print("✅ 按順序創建文件名映射")
+    else:
+        # 嘗試直接匹配
+        for colmap_file in colmap_files:
+            if colmap_file in actual_files:
+                filename_mapping[colmap_file] = colmap_file
+            else:
+                # 如果找不到直接匹配，嘗試模糊匹配
+                # 這裡可以添加更複雜的匹配邏輯
+                print(f"⚠️ 無法映射文件: {colmap_file}")
+    
+    print(f"📋 成功映射 {len(filename_mapping)} 個文件")
+    return filename_mapping
+
+def find_best_colmap_reconstruction(colmap_base_dir):
+    """
+    自動找到最佳的COLMAP重建結果
+    
+    Args:
+        colmap_base_dir: COLMAP輸出基礎目錄
+    
+    Returns:
+        最佳重建目錄路徑，如果沒有找到則返回None
+    """
+    import os
+    from pathlib import Path
+    
+    base_path = Path(colmap_base_dir)
+    
+    # 可能的重建目錄
+    possible_dirs = []
+    
+    # 檢查 sparse/0, sparse/1, ... 格式
+    sparse_dir = base_path / "sparse"
+    if sparse_dir.exists():
+        for subdir in sparse_dir.iterdir():
+            if subdir.is_dir() and subdir.name.isdigit():
+                cameras_file = subdir / "cameras.bin"
+                images_file = subdir / "images.bin"
+                if cameras_file.exists() and images_file.exists():
+                    possible_dirs.append(subdir)
+    
+    # 檢查 0, 1, ... 格式（直接在colmap_output下）
+    for subdir in base_path.iterdir():
+        if subdir.is_dir() and subdir.name.isdigit():
+            cameras_file = subdir / "cameras.bin"
+            images_file = subdir / "images.bin"
+            if cameras_file.exists() and images_file.exists():
+                possible_dirs.append(subdir)
+    
+    if not possible_dirs:
+        print("❌ 沒有找到有效的COLMAP重建結果")
+        return None
+    
+    # 選擇最佳重建（通常是圖片數量最多的）
+    best_dir = None
+    max_images = 0
+    
+    for recon_dir in possible_dirs:
+        try:
+            images_file = recon_dir / "images.bin"
+            images = rwm.read_images_binary(str(images_file))
+            num_images = len(images)
+            
+            print(f"📁 重建目錄 {recon_dir.name}: {num_images} 張圖片")
+            
+            if num_images > max_images:
+                max_images = num_images
+                best_dir = recon_dir
+        except Exception as e:
+            print(f"⚠️ 無法讀取重建目錄 {recon_dir.name}: {e}")
+            continue
+    
+    if best_dir:
+        print(f"✅ 選擇最佳重建: {best_dir} ({max_images} 張圖片)")
+        return str(best_dir)
+    else:
+        print("❌ 沒有找到有效的重建結果")
+        return None
+
 def colmap_to_nerf_fixed(colmap_dir, images_dir, output_file):
     """
-    修正版轉換函數 - 生成標準NeRF格式
+    修正版轉換函數 - 生成標準NeRF格式，支持智能文件名映射
     """
     print("🔄 開始修正版COLMAP到NeRF轉換...")
     
+    # 自動找到最佳重建結果
+    best_recon_dir = find_best_colmap_reconstruction(colmap_dir)
+    if not best_recon_dir:
+        return False
+    
     # 讀取COLMAP輸出
-    cameras_file = os.path.join(colmap_dir, "cameras.bin")
-    images_file = os.path.join(colmap_dir, "images.bin")
+    cameras_file = os.path.join(best_recon_dir, "cameras.bin")
+    images_file = os.path.join(best_recon_dir, "images.bin")
     
     if not os.path.exists(cameras_file) or not os.path.exists(images_file):
         print("❌ 找不到COLMAP輸出文件")
@@ -113,6 +238,9 @@ def colmap_to_nerf_fixed(colmap_dir, images_dir, output_file):
     images = read_images_binary(images_file)
     
     print(f"📷 找到 {len(cameras)} 個相機，{len(images)} 張圖片")
+    
+    # 創建文件名映射
+    filename_mapping = create_filename_mapping(images_dir, images)
     
     # 計算相機內參
     camera_id = list(cameras.keys())[0]
@@ -137,17 +265,25 @@ def colmap_to_nerf_fixed(colmap_dir, images_dir, output_file):
     valid_images = []
     
     for img_id, img_data in images.items():
-        # 檢查圖片文件是否存在
-        img_path = os.path.join(images_dir, img_data.name)
+        # 使用映射獲取實際文件名
+        colmap_filename = img_data.name
+        actual_filename = filename_mapping.get(colmap_filename)
+        
+        if actual_filename is None:
+            print(f"⚠️ 無法找到文件映射: {colmap_filename}")
+            continue
+            
+        # 檢查實際圖片文件是否存在
+        img_path = os.path.join(images_dir, actual_filename)
         if not os.path.exists(img_path):
-            print(f"⚠️ 圖片不存在: {img_data.name}")
+            print(f"⚠️ 圖片不存在: {actual_filename}")
             continue
         
         # 使用修正的轉換函數
         transform = colmap_to_nerf_transform_corrected(img_data.qvec, img_data.tvec)
         
         poses.append(transform)
-        valid_images.append((img_id, img_data))
+        valid_images.append((img_id, img_data, actual_filename))
     
     if len(poses) == 0:
         print("❌ 沒有有效的圖片")
@@ -162,9 +298,9 @@ def colmap_to_nerf_fixed(colmap_dir, images_dir, output_file):
     print(f"📏 場景尺度: {scene_scale}")
     
     # 構建NeRF格式的幀
-    for i, (img_id, img_data) in enumerate(valid_images):
+    for i, (img_id, img_data, actual_filename) in enumerate(valid_images):
         frame = {
-            "file_path": img_data.name,
+            "file_path": actual_filename,  # 使用實際文件名
             "rotation": 0.0,
             "transform_matrix": poses[i].tolist()
         }
